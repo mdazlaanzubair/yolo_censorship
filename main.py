@@ -11,7 +11,7 @@ print("✅ Model successfully loaded!")
 
 
 # STEP 2 - TRAINING MODEL ON CUSTOM DATABASE
-train_single_model(model)
+train_model(model)
 
 # STEP 3 - VALIDATING MODEL
 model_evaluation(model, "validation_metrics.json")

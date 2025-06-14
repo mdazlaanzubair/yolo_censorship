@@ -65,50 +65,15 @@ def extract_insights_from_detection_json_data(json_data, output_path):
     print("✅ Detection results insights saved!")
 
 
-def train_single_model(model, dataset_type="blood"):
-    """
-    Trains a YOLO model on the specified dataset type.
-
-    Args:
-        model: The YOLO model instance (already initialized).
-        dataset_type (str): One of 'blood', 'guns', or 'rifles'.
-
-    Returns:
-        None
-    """
-
-    MODEL_NAME = ""
-    MODEL_DIR = ""
-    PATH_TO_DATASET = ""
-
+def train_model(model):
     # Get absolute path to the current script's directory
     script_dir = os.path.dirname(os.path.abspath(__file__))
 
-    # Determine paths based on dataset type
-    if dataset_type == "blood":
-        MODEL_NAME = "blood_censor_model"
-        MODEL_DIR = os.path.join(script_dir, "..", "store", "custom_models", "blood")
-        PATH_TO_DATASET = os.path.join(
-            script_dir, "..", "store", "dataset", "blood", "data.yaml"
-        )
-
-    elif dataset_type == "guns":
-        MODEL_NAME = "guns_censor_model"
-        MODEL_DIR = os.path.join(script_dir, "..", "store", "custom_models", "guns")
-        PATH_TO_DATASET = os.path.join(
-            script_dir, "..", "store", "dataset", "guns", "data.yaml"
-        )
-
-    elif dataset_type == "rifles":
-        MODEL_NAME = "rifles_censor_model"
-        MODEL_DIR = os.path.join(script_dir, "..", "store", "custom_models", "rifles")
-        PATH_TO_DATASET = os.path.join(
-            script_dir, "..", "store", "dataset", "rifles", "data.yaml"
-        )
-
-    else:
-        print("❌ Please select a valid 'dataset_type': 'blood', 'guns', or 'rifles'")
-        return
+    MODEL_NAME = "yolo_censorship_model"
+    MODEL_DIR = os.path.join(script_dir, "..", "store", "custom_models", "blood")
+    PATH_TO_DATASET = os.path.join(
+        script_dir, "..", "store", "dataset", "combined_censored", "data.yaml"
+    )
 
     # Ensure the model directory exists
     os.makedirs(MODEL_DIR, exist_ok=True)
@@ -116,7 +81,7 @@ def train_single_model(model, dataset_type="blood"):
     # Train the model
     model.train(
         data=PATH_TO_DATASET,
-        epochs=1,  # Increase to 100 for real training
+        epochs=100,  # Increase to 100 for real training
         imgsz=640,
         batch=16,
         name=MODEL_NAME,
