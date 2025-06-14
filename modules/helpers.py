@@ -1,5 +1,6 @@
-import os, cv2, json
+import os, cv2, json, shutil, random
 from collections import defaultdict
+from pathlib import Path
 
 
 def get_video_data(video_filepath):
@@ -79,7 +80,7 @@ def train_single_model(model, dataset_type="blood"):
     MODEL_NAME = ""
     MODEL_DIR = ""
     PATH_TO_DATASET = ""
-    
+
     # Get absolute path to the current script's directory
     script_dir = os.path.dirname(os.path.abspath(__file__))
 
@@ -87,17 +88,23 @@ def train_single_model(model, dataset_type="blood"):
     if dataset_type == "blood":
         MODEL_NAME = "blood_censor_model"
         MODEL_DIR = os.path.join(script_dir, "..", "store", "custom_models", "blood")
-        PATH_TO_DATASET = os.path.join(script_dir, "..", "store", "dataset", "blood", "data.yaml")
+        PATH_TO_DATASET = os.path.join(
+            script_dir, "..", "store", "dataset", "blood", "data.yaml"
+        )
 
     elif dataset_type == "guns":
         MODEL_NAME = "guns_censor_model"
         MODEL_DIR = os.path.join(script_dir, "..", "store", "custom_models", "guns")
-        PATH_TO_DATASET = os.path.join(script_dir, "..", "store", "dataset", "guns", "data.yaml")
+        PATH_TO_DATASET = os.path.join(
+            script_dir, "..", "store", "dataset", "guns", "data.yaml"
+        )
 
     elif dataset_type == "rifles":
         MODEL_NAME = "rifles_censor_model"
         MODEL_DIR = os.path.join(script_dir, "..", "store", "custom_models", "rifles")
-        PATH_TO_DATASET = os.path.join(script_dir, "..", "store", "dataset", "rifles", "data.yaml")
+        PATH_TO_DATASET = os.path.join(
+            script_dir, "..", "store", "dataset", "rifles", "data.yaml"
+        )
 
     else:
         print("❌ Please select a valid 'dataset_type': 'blood', 'guns', or 'rifles'")
@@ -176,3 +183,149 @@ def model_prediction(model, file_name="model_predictions.json"):
         json.dump(all_predictions, f, indent=4)
 
     print("✅ All predictions saved to {}", file_name)
+
+
+def combine_datasets(dataset_paths, output_path):
+    """
+    Combines multiple YOLO format datasets into one dataset with specified splits.
+
+    Args:
+        dataset_paths (list): List of paths to the individual datasets.
+        output_path (str): Path to the output directory where the combined dataset will be saved.
+    """
+    # Create output directories
+    for split in ["train", "val", "test"]:
+        os.makedirs(os.path.join(output_path, split, "images"), exist_ok=True)
+        os.makedirs(os.path.join(output_path, split, "labels"), exist_ok=True)
+
+    # Define class mappings: {original_dataset_index: {original_class_id: new_class_id}}
+    class_mappings = {
+        0: {
+            0: 0,
+            1: 1,
+        },  # blood dataset: original class 0 → new 0 (blood), 1 → 1 (bloodstain)
+        1: {0: 2, 1: 3},  # guns dataset: original class 0 → new 2 (d), 1 → 3 (gun)
+        2: {0: 4},  # rifles dataset: original class 0 → new 4 (Rifle)
+    }
+
+    # Collect all image-label pairs along with their dataset origin
+    image_label_pairs = []
+
+    for dataset_idx, dataset_path in enumerate(dataset_paths):
+        possible_splits = ["train", "valid", "test"]
+        for split in possible_splits:
+            images_dir = os.path.join(dataset_path, split, "images")
+            if not os.path.exists(images_dir):
+                continue
+
+            labels_dir = os.path.join(dataset_path, split, "labels")
+            if not os.path.exists(labels_dir):
+                continue
+
+            image_files = [
+                f
+                for f in os.listdir(images_dir)
+                if f.lower().endswith((".jpg", ".jpeg", ".png"))
+            ]
+            for img_file in image_files:
+                label_file = os.path.splitext(img_file)[0] + ".txt"
+                label_path = os.path.join(labels_dir, label_file)
+                if os.path.exists(label_path):
+                    image_path = os.path.join(images_dir, img_file)
+                    image_label_pairs.append((image_path, label_path, dataset_idx))
+
+    # Shuffle the list to randomize before splitting
+    random.shuffle(image_label_pairs)
+
+    # Calculate split indices
+    total_images = len(image_label_pairs)
+    train_end = int(0.7 * total_images)
+    val_end = train_end + int(0.15 * total_images)
+
+    # Split the list
+    train_pairs = image_label_pairs[:train_end]
+    val_pairs = image_label_pairs[train_end:val_end]
+    test_pairs = image_label_pairs[val_end:]
+
+    def process_pair(pair, output_split):
+        """
+        Processes a single image-label pair by copying the image and updating the label file.
+
+        Args:
+            pair (tuple): (image_path, label_path, dataset_idx)
+            output_split (str): One of "train", "val", "test"
+        """
+        image_path, label_path, dataset_idx = pair
+        # Copy image
+        img_filename = os.path.basename(image_path)
+        output_img_path = os.path.join(
+            output_path, output_split, "images", img_filename
+        )
+        shutil.copy(image_path, output_img_path)
+
+        # Process and copy label
+        output_label_path = os.path.join(
+            output_path,
+            output_split,
+            "labels",
+            os.path.splitext(img_filename)[0] + ".txt",
+        )
+
+        # Read original label file
+        with open(label_path, "r") as f:
+            lines = f.readlines()
+
+        # Update class_ids based on dataset origin
+        updated_lines = []
+        mapping = class_mappings[dataset_idx]
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            parts = line.split()
+            if (
+                len(parts) < 5
+            ):  # Ensure it's a valid YOLO format line (class + 4 bbox coords)
+                continue
+            try:
+                original_class_id = int(parts[0])
+                if original_class_id in mapping:
+                    new_class_id = mapping[original_class_id]
+                    parts[0] = str(new_class_id)
+                    updated_line = " ".join(parts) + "\n"
+                    updated_lines.append(updated_line)
+            except (ValueError, IndexError):
+                continue  # Skip lines that don't conform to expected format
+
+        # Write updated label file
+        with open(output_label_path, "w") as f:
+            f.writelines(updated_lines)
+
+    # Process each pair in the splits
+    for pair in train_pairs:
+        process_pair(pair, "train")
+
+    for pair in val_pairs:
+        process_pair(pair, "val")
+
+    for pair in test_pairs:
+        process_pair(pair, "test")
+
+    # Generate the new data.yaml file
+    yaml_content = f"""train: ./train/images
+                    val: ./val/images
+                    test: ./test/images
+
+                    nc: 5
+                    names: ['blood', 'bloodstain', 'd', 'gun', 'Rifle']
+                    """
+    with open(os.path.join(output_path, "data.yaml"), "w") as f:
+        f.write(yaml_content)
+
+
+# dataset_paths = [
+#     "./store/dataset/blood",
+#     "./store/dataset/guns",
+#     "./store/dataset/rifles",
+# ]
+# combine_datasets(dataset_paths, "./store/dataset/combined_censored")

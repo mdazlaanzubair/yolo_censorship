@@ -13,7 +13,6 @@ print("✅ Model successfully loaded!")
 # STEP 2 - TRAINING MODEL ON CUSTOM DATABASE
 train_single_model(model)
 
-"""
 # STEP 3 - VALIDATING MODEL
 model_evaluation(model, "validation_metrics.json")
 
@@ -63,4 +62,3 @@ extract_insights_from_detection_json_data(json_data, output_file_path)
 
 censored_video_path = "./store/videos/censored"
 censor_objects(json_data, video_path, censored_video_path, classes_to_censor)
-"""
